@@ -1,8 +1,4 @@
 //
-// Created by YongGyu Lee on 2020-04-01.
-//
-
-//
 // Created by YongGyu Lee on 2020-03-26.
 //
 
@@ -15,6 +11,11 @@
 #include "cutemodel/CuteModel.hpp"
 
 using namespace ct;
+
+CuteModel::CuteModel(const char* model_path) : 
+        model(TfLiteModelCreateFromFile(model_path)),
+        options(TfLiteInterpreterOptionsCreate())
+{}
 
 CuteModel::CuteModel(void *buffer, size_t bufferSize)  :
         model(TfLiteModelCreate(buffer, bufferSize)),
