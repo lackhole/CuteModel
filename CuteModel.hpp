@@ -45,6 +45,7 @@ namespace ct {
         ~CuteModel();
         
         CuteModel(void *buffer, size_t bufferSize);
+        CuteModel(const char* model_path);
         
         CuteModel(CuteModel &&other);
         
