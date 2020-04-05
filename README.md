@@ -47,6 +47,7 @@ cuteModel.getOutput(0, out_first);
 
 ### Delegate
 GPU Delegate Options : https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/gpu/delegate.h#L66
+
 NNAPI Delegate Options: https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/delegates/nnapi/nnapi_delegate.h#L40
 ```
 // GPU Delegate
