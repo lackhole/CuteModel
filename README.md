@@ -5,8 +5,12 @@ TensorFlow Lite C API Wrapper Class (+ GPU &amp; NNAPI)
 ## Example
 
 ### Build
-```ct::CuteModel cuteModel("converted_model.tflite");  // build from file```
 ```
+// build from file
+ct::CuteModel cuteModel("converted_model.tflite");
+```
+```
+// build from buffer
 const char* buffer = ...;
 int len = ...;
 
@@ -15,6 +19,7 @@ ct::CuteModel cuteModel(buffer, len);
 
 ### Set Input
 ```
+using namespace ct;
 float* data[] = { ... };
 
 // set input with loop
