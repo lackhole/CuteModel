@@ -2,14 +2,15 @@
 // Created by YongGyu Lee on 2020-03-26.
 //
 
-#ifndef HELLO_LIBS_CUTEMODEL_H
-#define HELLO_LIBS_CUTEMODEL_H
+#ifndef CUTEMODEL_H
+#define CUTEMODEL_H
 
-#endif //HELLO_LIBS_CUTEMODEL_H
+#define USE_GPU_DELEGATE 1
+#define USE_NNAPI_DELEGATE 1
+
 
 #include <vector>
 #include <string>
-#include <chrono>
 
 #include "tensorflow/lite/c/common.h"
 #include "tensorflow/lite/c/builtin_op_data.h"
@@ -17,10 +18,22 @@
 
 #include "tensorflow/lite/delegates/gpu/delegate.h"
 
+#if USE_GPU_DELEGATE == 1
+#include "tensorflow/lite/delegates/gpu/delegate.h"
+#endif
+
+#if USE_NNAPI_DELEGATE == 1
+#include "tensorflow/lite/c/c_api_internal.h"
 #include "tensorflow/lite/delegates/nnapi/nnapi_delegate.h"
 #include "tensorflow/lite/nnapi/nnapi_util.h"
+#endif
+
 
 namespace ct {
+    
+    size_t elementByteSize(const TfLiteTensor *tensor);
+    
+    size_t tensorLength(const TfLiteTensor *tensor);
     
     class CuteModel {
     public:
@@ -29,11 +42,7 @@ namespace ct {
         TfLiteInterpreterOptions *options = nullptr;
         TfLiteInterpreter *interpreter = nullptr;
         
-        TfLiteGpuDelegateOptionsV2 gpuDelegateOptionsV2{};
-        TfLiteDelegate *gpuDelegate = nullptr;
         
-        tflite::StatefulNnApiDelegate::Options nnApiDelegateOptions{};
-        tflite::StatefulNnApiDelegate *nnApiDelegate = nullptr;
     
         /**
          * Constructor / Move Con/Op
@@ -45,7 +54,6 @@ namespace ct {
         ~CuteModel();
         
         CuteModel(void *buffer, size_t bufferSize);
-        CuteModel(const char* model_path);
         
         CuteModel(CuteModel &&other);
         
@@ -56,15 +64,23 @@ namespace ct {
          */
         
         
-        void setCpuNumThreads(int numThread);
+        void setCpuNumThreads(int numThread = -1);
+
+#ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
+        TfLiteGpuDelegateOptionsV2 gpuDelegateOptionsV2{};
+        TfLiteDelegate *gpuDelegate = nullptr;
         
-        void setGpuDelegate(
-                const TfLiteGpuDelegateOptionsV2 &gpuOptions = TfLiteGpuDelegateOptionsV2Default());
+        void setGpuDelegate(const TfLiteGpuDelegateOptionsV2 &gpuOptions = TfLiteGpuDelegateOptionsV2Default());
+#endif
+
+#ifdef TENSORFLOW_LITE_DELEGATES_NNAPI_NNAPI_DELEGATE_H_
+        tflite::StatefulNnApiDelegate::Options nnApiDelegateOptions{};
+        tflite::StatefulNnApiDelegate *nnApiDelegate = nullptr;
         
-        void setNnApiDelegate(
-                const tflite::StatefulNnApiDelegate::Options &nnApiOptions = tflite::StatefulNnApiDelegate::Options());
+        void setNnApiDelegate(const tflite::StatefulNnApiDelegate::Options &nnApiOptions = tflite::StatefulNnApiDelegate::Options());
+#endif
         
-        TfLiteInterpreter *buildInterpreter();
+        TfLiteInterpreter* buildInterpreter();
         
          bool isBuilt() const;
         
@@ -74,9 +90,7 @@ namespace ct {
         template<typename Data>
         void setInput(const Data &data);
         
-         void invoke();
-        
-         long long int invokeGetTime();
+        void invoke();
         
         template<typename T>
         void getOutput(int index, std::vector<T> &output) const;
@@ -84,26 +98,20 @@ namespace ct {
         template<typename T>
         void getOutput(std::vector<std::vector<T>> &output) const;
         
-         int32_t inputTensorCount() const;
+        int32_t inputTensorCount() const;
+        int32_t outputTensorCount() const;
         
-         int32_t outputTensorCount() const;
+        size_t inputTensorLength(int index) const;
+        size_t outputTensorLength(int index) const;
         
-         size_t inputTensorLength(int index) const;
+        TfLiteTensor* inputTensor(int index);
+        const TfLiteTensor* inputTensor(int index) const;
         
-         size_t outputTensorLength(int index) const;
-        
-         TfLiteTensor *inputTensor(int index);
-        
-         const TfLiteTensor *inputTensor(int index) const;
-        
-         const TfLiteTensor *outputTensor(int index) const;
+        const TfLiteTensor* outputTensor(int index) const;
         
         std::string summary() const;
+
         std::string summarizeOptions() const;
-        
-        static size_t elementByteSize(const TfLiteTensor *tensor);
-        
-        static size_t tensorLength(const TfLiteTensor *tensor);
         
         void clear();
     
@@ -115,37 +123,6 @@ namespace ct {
         void operator=(const CuteModel &other) = delete;
     };
     
-    bool CuteModel::isBuilt() const {
-        return interpreter != NULL;
-    }
-    
-     int32_t CuteModel::inputTensorCount() const {
-        return TfLiteInterpreterGetInputTensorCount(interpreter);
-    };
-    
-     int32_t CuteModel::outputTensorCount() const {
-        return TfLiteInterpreterGetOutputTensorCount(interpreter);
-    };
-    
-     size_t CuteModel::inputTensorLength(int index) const {
-        return tensorLength(inputTensor(index));
-    };
-    
-     size_t CuteModel::outputTensorLength(int index) const {
-        return tensorLength(outputTensor(index));
-    };
-    
-     TfLiteTensor *CuteModel::inputTensor(int index) {
-        return TfLiteInterpreterGetInputTensor(interpreter, index);
-    };
-    
-     const TfLiteTensor *CuteModel::inputTensor(int index) const {
-        return TfLiteInterpreterGetInputTensor(interpreter, index);
-    };
-    
-     const TfLiteTensor *CuteModel::outputTensor(int index) const {
-        return TfLiteInterpreterGetOutputTensor(interpreter, index);
-    };
     
     template<typename Data>
     void CuteModel::setInput(const Data &data) {
@@ -166,19 +143,6 @@ namespace ct {
         );
         ++input_data_index;
         setInput(data_rest...);
-    }
-    
-    void CuteModel::invoke() {
-        TfLiteInterpreterInvoke(interpreter);
-        input_data_index = 0;
-    }
-    
-    long long int CuteModel::invokeGetTime() {
-        auto t_beg = std::chrono::high_resolution_clock::now();
-        TfLiteInterpreterInvoke(interpreter);
-        input_data_index = 0;
-        return std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::high_resolution_clock::now() - t_beg).count();
     }
     
     template<typename T>
@@ -205,3 +169,5 @@ namespace ct {
     }
     
 }
+
+#endif //CUTEMODEL_H
