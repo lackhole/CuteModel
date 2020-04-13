@@ -2,20 +2,30 @@
 // Created by YongGyu Lee on 2020-03-26.
 //
 
-#ifndef HELLO_LIBS_CUTEMODEL_H
-#define HELLO_LIBS_CUTEMODEL_H
-
-#endif //HELLO_LIBS_CUTEMODEL_H
-
-#include <include/tensorflow/lite/c/c_api_internal.h>
 #include "cutemodel/CuteModel.hpp"
 
 using namespace ct;
 
-CuteModel::CuteModel(const char* model_path) : 
-        model(TfLiteModelCreateFromFile(model_path)),
-        options(TfLiteInterpreterOptionsCreate())
-{}
+size_t ct::elementByteSize(const TfLiteTensor* tensor) {
+    switch(TfLiteTensorType(tensor)){
+        case kTfLiteNoType:     return 0;
+        case kTfLiteFloat32:    return sizeof(float);
+        case kTfLiteInt32:      return sizeof(int32_t);
+        case kTfLiteUInt8:      return sizeof(uint8_t);
+        case kTfLiteInt64:      return sizeof(int64_t);
+        case kTfLiteString:     return strlen(reinterpret_cast<const char*>(TfLiteTensorData(tensor)));
+        case kTfLiteBool:       return sizeof(bool);
+        case kTfLiteInt16:      return sizeof(int16_t);
+        case kTfLiteComplex64:  return sizeof(TfLiteComplex64);
+        case kTfLiteInt8:       return sizeof(int8_t);
+        case kTfLiteFloat16:    return sizeof(TfLiteFloat16);
+        case kTfLiteFloat64:    return sizeof(double);
+    }
+}
+
+size_t ct::tensorLength(const TfLiteTensor *tensor) {
+    return TfLiteTensorByteSize(tensor) / ct::elementByteSize(tensor);
+}
 
 CuteModel::CuteModel(void *buffer, size_t bufferSize)  :
         model(TfLiteModelCreate(buffer, bufferSize)),
@@ -23,38 +33,67 @@ CuteModel::CuteModel(void *buffer, size_t bufferSize)  :
 {}
 
 CuteModel::~CuteModel() {
+#ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
     if(gpuDelegate != nullptr)     TfLiteGpuDelegateV2Delete(gpuDelegate);
+#endif
     if(options != nullptr)      TfLiteInterpreterOptionsDelete(options);
     if(model != nullptr)        TfLiteModelDelete(model);
     if(interpreter != nullptr)  TfLiteInterpreterDelete(interpreter);
+    
+#ifdef TENSORFLOW_LITE_DELEGATES_NNAPI_NNAPI_DELEGATE_H_
     delete nnApiDelegate;
+#endif
 }
 
 void CuteModel::clear(){
     model = nullptr;
     options = nullptr;
     interpreter = nullptr;
+
+#ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
     gpuDelegate = nullptr;
+#endif
+
+#ifdef TENSORFLOW_LITE_DELEGATES_NNAPI_NNAPI_DELEGATE_H_
     nnApiDelegate = nullptr;
+#endif
 }
 
 CuteModel::CuteModel(CuteModel &&other) :
         model(other.model),
         options(other.options),
-        interpreter(other.interpreter),
-        gpuDelegate(other.gpuDelegate),
-        nnApiDelegate(other.nnApiDelegate)
+        interpreter(other.interpreter)
+#ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
+        ,gpuDelegate(other.gpuDelegate)
+#endif
+#ifdef TENSORFLOW_LITE_DELEGATES_NNAPI_NNAPI_DELEGATE_H_
+        ,nnApiDelegate(other.nnApiDelegate)
+#endif
 {
     other.clear();
 }
 
 CuteModel& CuteModel::operator=(CuteModel &&other) {
-    if((model == nullptr) & (options == nullptr) & (interpreter == nullptr) & (gpuDelegate == nullptr)){
+    if(
+        (model == nullptr)
+        & (options == nullptr)
+        & (interpreter == nullptr)
+        #ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
+        & (gpuDelegate == nullptr)
+        #endif
+        #ifdef TENSORFLOW_LITE_DELEGATES_NNAPI_NNAPI_DELEGATE_H_
+        & (nnApiDelegate == nullptr)
+        #endif
+        ){
         model = other.model;
         options = other.options;
         interpreter = other.interpreter;
+#ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
         gpuDelegate = other.gpuDelegate;
+#endif
+#ifdef TENSORFLOW_LITE_DELEGATES_NNAPI_NNAPI_DELEGATE_H_
         nnApiDelegate = other.nnApiDelegate;
+#endif
         
         other.clear();
     }
@@ -66,29 +105,75 @@ void CuteModel::setCpuNumThreads(int numThread) {
     TfLiteInterpreterOptionsSetNumThreads(options, numThread);
 }
 
+
+#ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
 void CuteModel::setGpuDelegate(const TfLiteGpuDelegateOptionsV2 &gpuDelegate_) {
     gpuDelegateOptionsV2 = gpuDelegate_;
     gpuDelegate = TfLiteGpuDelegateV2Create(&gpuDelegateOptionsV2);
     TfLiteInterpreterOptionsAddDelegate(options, gpuDelegate);
 }
+#endif
 
+#ifdef TENSORFLOW_LITE_DELEGATES_NNAPI_NNAPI_DELEGATE_H_
 void CuteModel::setNnApiDelegate(const tflite::StatefulNnApiDelegate::Options &nnApiOptions) {
     nnApiDelegateOptions = nnApiOptions;
     nnApiDelegate = new tflite::StatefulNnApiDelegate(nnApiDelegateOptions);
     TfLiteInterpreterOptionsAddDelegate(options, nnApiDelegate);
 }
+#endif
+
 
 TfLiteInterpreter* CuteModel::buildInterpreter() {
     interpreter = TfLiteInterpreterCreate(model, options);
     
     if (interpreter == NULL)
         return NULL;
-    
+
+#ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
     if(gpuDelegate == nullptr)
+#endif
         TfLiteInterpreterAllocateTensors(interpreter);
     
     return interpreter;
 }
+
+
+void CuteModel::invoke() {
+    TfLiteInterpreterInvoke(interpreter);
+    input_data_index = 0;
+}
+
+bool CuteModel::isBuilt() const {
+    return interpreter != nullptr;
+}
+
+int32_t CuteModel::inputTensorCount() const {
+    return TfLiteInterpreterGetInputTensorCount(interpreter);
+};
+
+int32_t CuteModel::outputTensorCount() const {
+    return TfLiteInterpreterGetOutputTensorCount(interpreter);
+};
+
+size_t CuteModel::inputTensorLength(int index) const {
+    return ct::tensorLength(inputTensor(index));
+};
+
+size_t CuteModel::outputTensorLength(int index) const {
+    return ct::tensorLength(outputTensor(index));
+};
+
+TfLiteTensor* CuteModel::inputTensor(int index) {
+    return TfLiteInterpreterGetInputTensor(interpreter, index);
+};
+
+const TfLiteTensor* CuteModel::inputTensor(int index) const {
+    return TfLiteInterpreterGetInputTensor(interpreter, index);
+};
+
+const TfLiteTensor* CuteModel::outputTensor(int index) const {
+    return TfLiteInterpreterGetOutputTensor(interpreter, index);
+};
 
 std::string CuteModel::summary() const{
     if(interpreter == nullptr)
@@ -127,9 +212,13 @@ std::string CuteModel::summary() const{
                 to_string(TfLiteTensorByteSize(tensor)) + " " +
                 TfLiteTypeGetName(TfLiteTensorType(tensor)) + " ";
         
-        log += to_string(tensor->dims[0].data[0]);
-        for(int s = 1; s < tensor->dims[0].size; ++s)
-            log += "x" + to_string(tensor->dims[0].data[s]);
+        if(tensor->dims[0].size > 0) {
+            log += to_string(tensor->dims[0].data[0]);
+            for(int s = 1; s < tensor->dims[0].size; ++s)
+                log += "x" + to_string(tensor->dims[0].data[s]);
+        }
+        else
+            log += " - ";
         
         log += '\n';
     }log += '\n';
@@ -139,6 +228,11 @@ std::string CuteModel::summary() const{
 }
 
 std::string CuteModel::summarizeOptions() const {
+
+    #ifndef TENSORFLOW_LITE_C_C_API_INTERNAL_H_
+    return "";
+    
+    #else
     
     using std::string;
     using std::to_string;
@@ -151,7 +245,8 @@ std::string CuteModel::summarizeOptions() const {
     log += "Delegates: " + to_string(options->delegates.size()) + '\n';
     
     log += "Use NNAPI: " + (options->use_nnapi ? string("Yes") : string("No"));
-    
+
+#ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
     if(gpuDelegate != nullptr && options->delegates[0]->data_ != NULL) {
         auto getInferencePriority = [](int priority) -> std::string{
             switch(priority){
@@ -167,11 +262,13 @@ std::string CuteModel::summarizeOptions() const {
         log += "    Precision Loss Allowed: " + (gpuDelegateOptionsV2.is_precision_loss_allowed ? string("Yes\n") : string("No\n"));
         log += "    Inference Preference: " + (gpuDelegateOptionsV2.inference_preference ? string("Fast Single Answer\n") : string("Sustained Speed\n"));
         log += "    Inference Priority: " +
-                        getInferencePriority(gpuDelegateOptionsV2.inference_priority1) + ' ' +
-                        getInferencePriority(gpuDelegateOptionsV2.inference_priority2) + ' ' +
-                        getInferencePriority(gpuDelegateOptionsV2.inference_priority3);
+               getInferencePriority(gpuDelegateOptionsV2.inference_priority1) + ", " +
+               getInferencePriority(gpuDelegateOptionsV2.inference_priority2) + ", " +
+               getInferencePriority(gpuDelegateOptionsV2.inference_priority3);
     }
-    
+#endif
+
+#ifdef TENSORFLOW_LITE_DELEGATES_GPU_DELEGATE_H_
     if(nnApiDelegate != nullptr && options->delegates[0]->data_ != NULL){
         using ExecutionPreference = tflite::StatefulNnApiDelegate::Options::ExecutionPreference;
         
@@ -198,28 +295,11 @@ std::string CuteModel::summarizeOptions() const {
         log += "    Disallow NNAPI CPU: " + (nnApiDelegateOptions.disallow_nnapi_cpu ? string("Yes\n") : string("No\n"));
         log += "    Max Numper Delegate Partition: " + to_string(nnApiDelegateOptions.max_number_delegated_partitions);
     }
+#endif
     
     
     return std::move(log);
+    
+    #endif
 }
 
-
-size_t CuteModel::elementByteSize(const TfLiteTensor* tensor) {
-    switch(TfLiteTensorType(tensor)){
-        case kTfLiteNoType:     return 0;
-        case kTfLiteFloat32:    return sizeof(float);
-        case kTfLiteInt32:      return sizeof(int32_t);
-        case kTfLiteUInt8:      return sizeof(uint8_t);
-        case kTfLiteInt64:      return sizeof(int64_t);
-        case kTfLiteString:     return strlen(reinterpret_cast<const char*>(TfLiteTensorData(tensor)));
-        case kTfLiteBool:       return sizeof(bool);
-        case kTfLiteInt16:      return sizeof(int16_t);
-        case kTfLiteComplex64:  return sizeof(TfLiteComplex64);
-        case kTfLiteInt8:       return sizeof(int8_t);
-        case kTfLiteFloat16:    return sizeof(TfLiteFloat16);
-    }
-}
-
-size_t CuteModel::tensorLength(const TfLiteTensor *tensor) {
-    return TfLiteTensorByteSize(tensor) / elementByteSize(tensor);
-}
